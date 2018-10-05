@@ -10,5 +10,5 @@
 ---
 
 ## ECDSACoin
-- Instead of pictures of signatures, lets use digital signatures
-- signatures made with ECDSA
+- Instead of pictures of signatures, use digital signatures.
+- Signatures made with ECDSA.
