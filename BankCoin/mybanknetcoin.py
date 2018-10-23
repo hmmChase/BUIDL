@@ -7,6 +7,12 @@ from ecdsa import SigningKey, SECP256k1
 from utils import serialize
 
 
+def spend_message(tx, index):
+    tx_in = tx.tx_ins[index]
+    outpoint = tx_in.outpoint
+    return serialize(outpoint) + serialize(tx.tx_outs)
+
+
 class Tx:
 
     def __init__(self, id, tx_ins, tx_outs):
@@ -15,8 +21,14 @@ class Tx:
         self.tx_outs = tx_outs
 
     def sign_input(self, index, private_key):
-        signature = private_key.sign(self.tx_ins[index].spend_message)
+        message = spend_message(self, index)
+        signature = private_key.sign(message)
         self.tx_ins[index].signature = signature
+
+    def verify_input(self, index, public_key):
+        tx_in = self.tx_ins[index]
+        message = spend_message(self, index)
+        return public_key.verify(tx_in.signature, message)
 
 
 class TxIn:
@@ -25,10 +37,6 @@ class TxIn:
         self.tx_id = tx_id
         self.index = index
         self.signature = signature
-
-    @property
-    def spend_message(self):
-        return f"{self.tx_id}:{self.index}".encode()
 
     @property
     def outpoint(self):
@@ -73,13 +81,13 @@ class Bank:
     def validate_tx(self, tx):
         in_sum = 0
         out_sum = 0
-        for tx_in in tx.tx_ins:
+        for index, tx_in in enumerate(tx.tx_ins):
             assert tx_in.outpoint in self.utxo
 
             tx_out = self.utxo[tx_in.outpoint]
             # Verify signature using public key of TxOut we're spending
             public_key = tx_out.public_key
-            public_key.verify(tx_in.signature, tx_in.spend_message)
+            tx.verify_input(index, public_key)
 
             # Sum up the total inputs
             amount = tx_out.amount

@@ -22,3 +22,9 @@
 
 - Solving the double-spend problem using centralization.
 - Keeps track of all unspent outputs in a utxo set.
+
+---
+
+## BlockCoin
+
+- Decentralize the issueing of units using a network
