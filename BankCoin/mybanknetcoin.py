@@ -21,7 +21,7 @@ import socketserver
 import sys
 from copy import deepcopy
 from ecdsa import SigningKey, SECP256k1
-from utils import serialize, deserialize
+from utils import serialize, deserialize, prepare_simple_tx
 from identities import user_public_key, user_private_key
 from docopt import docopt
 
@@ -184,7 +184,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
                 balance = bank.fetch_balance(public_key)
                 self.respond("balance-response", balance)
 
-            if message["utxo"] == "utxo":
+            if message["command"] == "utxo":
                 public_key = message["data"]
                 utxo = bank.fetch_utxo(public_key)
                 self.respond("utxo-response", utxo)
@@ -237,7 +237,7 @@ def main(args):
         sender_public_key = sender_private_key.get_verifying_key()
 
         utxo_response = send_message("utxo", sender_public_key)
-        utxo = utxo_response["datar"]
+        utxo = utxo_response["data"]
 
         tx = prepare_simple_tx(utxo, sender_private_key,
                                recipient_public_key, amount)

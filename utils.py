@@ -23,7 +23,7 @@ def from_disk(filename):
 
 
 def prepare_simple_tx(utxos, sender_private_key, recipient_public_key, amount):
-    from blockcoin import Tx, TxIn, TxOut
+    from mybanknetcoin import Tx, TxIn, TxOut
     sender_public_key = sender_private_key.get_verifying_key()
 
     # Construct tx.tx_outs
