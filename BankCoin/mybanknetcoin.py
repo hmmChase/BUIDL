@@ -1,10 +1,29 @@
+"""
+BanknetCoin
+
+Usage:
+  banknetcoin.py serve
+  banknetcoin.py ping
+  banknetcoin.py tx <from> <to> <amount>
+  banknetcoin.py balance <name>
+
+Options:
+  -h --help     Show this screen.
+"""
+
 import os
 import sys
-sys.path.insert(1, os.path.join(sys.path[0], '..'))
+sys.path.append('..')
+
 import uuid
+import socket
+import socketserver
+import sys
 from copy import deepcopy
 from ecdsa import SigningKey, SECP256k1
-from utils import serialize
+from utils import serialize, deserialize
+from identities import user_public_key, user_private_key
+from docopt import docopt
 
 
 def spend_message(tx, index):
@@ -105,10 +124,132 @@ class Bank:
 
     def fetch_utxo(self, public_key):
         return [utxo for utxo in self.utxo.values()
-                if utxo.public_key.to_string() == public_key.to_string()]
+                if utxo.public_key == public_key]
 
     def fetch_balance(self, public_key):
         # Fetch utxo associated with this public key
         unspents = self.fetch_utxo(public_key)
         # Sum the amounts
         return sum([tx_out.amount for tx_out in unspents])
+
+
+# server
+
+server_host = "0.0.0.0"
+client_host = "127.0.0.1"
+port = 10000
+server_address = (server_host, port)
+client_address = (client_host, port)
+bank = Bank()
+
+
+def prepare_message(command, data):
+    return {
+        "command": command,
+        "data": data,
+    }
+
+
+class MyTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+
+class TCPHandler(socketserver.BaseRequestHandler):
+
+    def respond(self, command, data):
+        response = prepare_message(command, data)
+        serialized_response = serialize(response)
+        self.request.sendall(serialized_response)
+        print(f'Sent {response}')
+
+    def handle(self):
+        while True:
+            message_data = self.request.recv(5000).strip()
+            # Need to break early if we got empty bytes,
+            # otherwise we get a deserialization error
+            # trying to deserialize empty bytes
+            if message_data == b"":
+                print("Closing connection, bye!")
+                break
+
+            message = deserialize(message_data)
+
+            print(f'Received {message}')
+
+            if message["command"] == "ping":
+                self.respond("pong", "")
+
+            if message["command"] == "balance":
+                public_key = message["data"]
+                balance = bank.fetch_balance(public_key)
+                self.respond("balance-response", balance)
+
+            if message["utxo"] == "utxo":
+                public_key = message["data"]
+                utxo = bank.fetch_utxo(public_key)
+                self.respond("utxo-response", utxo)
+
+            if message["command"] == "tx":
+                tx = message["data"]
+                try:
+                    bank.handle_tx(tx)
+                    self.respond("tx-response", data="accepted")
+                except:
+                    self.respond("tx-response", data="rejected")
+
+
+def serve():
+    server = MyTCPServer(server_address, TCPHandler)
+    server.serve_forever()
+
+
+def send_message(command, data):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect(client_address)
+
+        message = prepare_message(command, data)
+        serialized_message = serialize(message)
+        s.sendall(serialized_message)
+
+        message_data = s.recv(5000)
+        message = deserialize(message_data)
+
+        print(f'Received {message}')
+
+        return message
+
+
+def main(args):
+    if args["serve"]:
+        alice_public_key = user_public_key("alice")
+        bank.issue(1000, alice_public_key)
+        serve()
+    elif args["ping"]:
+        send_message("ping", "")
+    elif args["balance"]:
+        name = args["<name>"]
+        public_key = user_public_key(name)
+        send_message("balance", public_key)
+    elif args["tx"]:
+        sender_private_key = user_private_key(args["<from>"])
+        recipient_public_key = user_public_key(args["<to>"])
+        amount = int(args["<amount>"])
+        sender_public_key = sender_private_key.get_verifying_key()
+
+        utxo_response = send_message("utxo", sender_public_key)
+        utxo = utxo_response["datar"]
+
+        tx = prepare_simple_tx(utxo, sender_private_key,
+                               recipient_public_key, amount)
+
+        response = send_message("tx", tx)
+        print("response")
+
+    else:
+        print("invalid command")
+        # print("python serialized_ping_pong.py <serve|ping>")
+
+
+if __name__ == "__main__":
+    args = docopt(__doc__)
+    main(args)
