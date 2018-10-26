@@ -27,4 +27,4 @@
 
 ## BlockCoin
 
-- Decentralize the issuing of units using a network
+- Decentralize issuance and validation of coins using a network of banks

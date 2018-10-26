@@ -1,7 +1,9 @@
-import time, logging, threading, hashlib
+import time
+import logging
+import threading
+import hashlib
 
 logger = logging.getLogger(__name__)
-
 
 
 mining_interrupt = threading.Event()
@@ -11,6 +13,7 @@ chain = []
 
 bits = 21
 target = 1 << (256 - bits)
+
 
 def message_generator():
     """Arbitrary message for blocks"""
@@ -61,7 +64,7 @@ def mine_forever():
     while True:
         unmined_block = Block(previous=chain[-1].id)
         mined_block = mine_block(unmined_block)
-        
+
         # This is False if mining was interrupted
         # Perhaps an exception would be wiser ...
         if mined_block:
@@ -89,7 +92,7 @@ def main():
             print("Set mining interrupt")
             with chain_lock:
                 block = Block(
-                    previous="0000070cfe252d71f30a7d66e652174fce5bb6dc90cb7c52997871ffbc731433", 
+                    previous="0000070cfe252d71f30a7d66e652174fce5bb6dc90cb7c52997871ffbc731433",
                     nonce=62706,
                 )
                 chain.append(block)
@@ -99,11 +102,9 @@ def main():
         time.sleep(.1)
 
 
-
-
 if __name__ == "__main__":
     genesis = Block(
-        previous="0" * 64, 
+        previous="0" * 64,
         nonce=0
     )
     print("Setting genesis block: {genesis}")

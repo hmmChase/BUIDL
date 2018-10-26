@@ -1,4 +1,10 @@
-import socketserver, socket, random, os, threading, logging, re
+import socketserver
+import socket
+import random
+import os
+import threading
+import logging
+import re
 
 
 logging.basicConfig(
@@ -43,16 +49,19 @@ def ping_peers():
         ping(hostname)
     schedule_ping()
 
+
 def schedule_ping():
     global current
     current = (current + 1) % 3
     if ID == current:
         threading.Timer(1, ping_peers, []).start()
 
+
 def main():
     schedule_ping()
     server = socketserver.TCPServer(('0.0.0.0', 10000), TCPHandler)
     server.serve_forever()
+
 
 if __name__ == "__main__":
     main()

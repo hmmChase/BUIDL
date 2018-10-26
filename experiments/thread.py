@@ -1,4 +1,6 @@
-import sys, time, random
+import sys
+import time
+import random
 from threading import Thread, Event, Lock
 
 a = 0
@@ -38,7 +40,6 @@ def no_lock_demo():
                 time.sleep(random.random() / 1000)
                 l.append(length)
 
-    
     threads = [Thread(target=appender) for i in range(10)]
 
     for thread in threads:
@@ -49,6 +50,7 @@ def no_lock_demo():
 
     print(l == list(range(1_000)))
     print(l)
+
 
 def lock_demo():
 
@@ -65,7 +67,7 @@ def lock_demo():
             lock.release()
             if length >= 100:
                 return
-    
+
     threads = [Thread(target=appender) for i in range(10)]
 
     for thread in threads:
@@ -76,6 +78,7 @@ def lock_demo():
 
     print(l == list(range(100)))
     print(l)
+
 
 def lock_cm_demo():
     def appender():
@@ -89,7 +92,6 @@ def lock_cm_demo():
                 time.sleep(random.random() / 1000)
                 l.append(length)
 
-    
     threads = [Thread(target=appender) for i in range(10)]
 
     for thread in threads:
@@ -100,6 +102,7 @@ def lock_cm_demo():
 
     print(l == list(range(100)))
     print(l)
+
 
 if __name__ == "__main__":
     eval(f"{sys.argv[1]}()")

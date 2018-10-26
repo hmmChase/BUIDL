@@ -4,7 +4,6 @@ sys.path.append('..')
 from utils import serialize, deserialize
 import socket
 import socketserver
-import sys
 server_host = "0.0.0.0"
 client_host = "127.0.0.1"
 port = 10000
