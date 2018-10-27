@@ -1,32 +1,42 @@
 """
-BanknetCoin
+BlockCoin
 
 Usage:
-  banknetcoin.py serve
-  banknetcoin.py ping
-  banknetcoin.py tx <from> <to> <amount>
-  banknetcoin.py balance <name>
+  BlockCoin.py serve
+  BlockCoin.py ping
+  BlockCoin.py tx <from> <to> <amount>
+  BlockCoin.py balance <name>
 
 Options:
   -h --help     Show this screen.
 """
 
-import os
 import sys
 sys.path.append('..')
 
+import os
 import uuid
 import socket
 import socketserver
 import sys
 import time
+import logging
+import threading
 from copy import deepcopy
 from ecdsa import SigningKey, SECP256k1
 from utils import serialize, deserialize, prepare_simple_tx
-from identities import user_public_key, user_private_key, bank_public_key
+from identities import user_private_key, user_public_key, bank_private_key, bank_public_key, airdrop_tx
 from docopt import docopt
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)-15s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+
 NUM_BANKS = 3
+BLOCK_TIME = 5
 
 
 def spend_message(tx, index):
@@ -103,9 +113,14 @@ class Bank:
         self.blocks = []
         self.utxo_set = {}
         self.mempool = []
+        self.peer_addresses = {(hostname, PORT)
+                               for hostname in os.environ.get('PEERS').split(',')}
 
     def next_id(self):
         return len(self.blocks) % NUM_BANKS
+
+    def our_turn(self):
+        return self.id == self.next_id
 
     def update_utxo_set(self, tx):
         for tx_out in tx.tx_outs:
@@ -150,9 +165,8 @@ class Bank:
         self.update_utxo_set(tx)
 
     def handle_block(self, block):
-        if len(self.blocks) > 0:
-            public_key = bank_public_key(self.next_id)
-            public_key.verify(block.signature, block.message)
+        public_key = bank_public_key(self.next_id())
+        public_key.verify(block.signature, block.message())
 
         for tx in block.txns:
             self.validate_tx(tx)
@@ -164,27 +178,47 @@ class Bank:
 
         self.schedule_next_block()
 
-    def fetch_utxo(self, public_key):
+    def fetch_utxos(self, public_key):
         return [utxo for utxo in self.utxo_set.values()
-                if utxo_set.public_key == public_key]
+                if utxo.public_key == public_key]
 
     def fetch_balance(self, public_key):
         # Fetch utxo associated with this public key
-        unspents = self.fetch_utxo(public_key)
+        unspents = self.fetch_utxos(public_key)
         # Sum the amounts
         return sum([tx_out.amount for tx_out in unspents])
 
+    def make_block(self):
+        txns = deepcopy(self.mempool)
+        self.txns = []
+        block = Block(txns)
+        block.sign(self.private_key)
+        return block
+
+    def submit_block(self):
+        block = self.make_block()
+
+        self.handle_block(block)
+
+        for address in self.peer_addresses:
+            send_message(address, "block", block)
+
     def schedule_next_block(self):
-        pass
+        if self.our_turn:
+            threading.Timer(BLOCK_TIME, self.submit_block).start()
+
+    def airdrop(self, tx):
+        assert len(self.blocks) == 0
+
+        self.update_utxo_set(tx)
+
+        block = Block([tx])
+        self.blocks.append(block)
+
 
 # server
-
-
 server_host = "0.0.0.0"
-client_host = "127.0.0.1"
-port = 10000
-server_address = (server_host, port)
-client_address = (client_host, port)
+PORT = 10000
 bank = None
 
 
@@ -219,7 +253,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
 
             message = deserialize(message_data)
 
-            print(f'Received {message}')
+            logger.info(f"Received {message}")
 
             if message["command"] == "ping":
                 self.respond("pong", "")
@@ -231,7 +265,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
 
             if message["command"] == "utxo":
                 public_key = message["data"]
-                utxo = bank.fetch_utxo(public_key)
+                utxo = bank.fetch_utxos(public_key)
                 self.respond("utxo-response", utxo)
 
             if message["command"] == "tx":
@@ -247,30 +281,45 @@ class TCPHandler(socketserver.BaseRequestHandler):
 
 
 def serve():
-    server = MyTCPServer(server_address, TCPHandler)
+    server = socketserver.TCPServer((server_host, PORT), TCPHandler)
     server.serve_forever()
 
 
-def send_message(command, data):
+# def send_message(command, data):
+#     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+#         s.connect(client_address)
+
+#         message = prepare_message(command, data)
+#         serialized_message = serialize(message)
+#         s.sendall(serialized_message)
+
+#         message_data = s.recv(5000)
+#         message = deserialize(message_data)
+
+#         print(f'Received {message}')
+
+#         return message
+
+
+def send_message(address, command, data, response=False):
+    message = prepare_message(command, data)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(client_address)
-
-        message = prepare_message(command, data)
-        serialized_message = serialize(message)
-        s.sendall(serialized_message)
-
-        message_data = s.recv(5000)
-        message = deserialize(message_data)
-
-        print(f'Received {message}')
-
-        return message
+        s.connect(address)
+        s.sendall(serialize(message))
+        if response:
+            return deserialize(s.recv(5000))
 
 
 def main(args):
     if args["serve"]:
-        alice_public_key = user_public_key("alice")
-        bank.issue(1000, alice_public_key)
+        global bank
+        bank_id = int(os.environ["BANK_ID"])
+        bank = Bank(
+            id=bank_id,
+            private_key=bank_private_key(bank_id)
+        )
+        bank.airdrop(airdrop_tx())
+        bank.schedule_next_block()
         serve()
     elif args["ping"]:
         send_message("ping", "")
