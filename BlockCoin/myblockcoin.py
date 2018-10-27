@@ -19,11 +19,14 @@ import uuid
 import socket
 import socketserver
 import sys
+import time
 from copy import deepcopy
 from ecdsa import SigningKey, SECP256k1
 from utils import serialize, deserialize, prepare_simple_tx
-from identities import user_public_key, user_private_key
+from identities import user_public_key, user_private_key, bank_public_key
 from docopt import docopt
+
+NUM_BANKS = 3
 
 
 def spend_message(tx, index):
@@ -75,16 +78,40 @@ class TxOut:
         return (self.tx_id, self.index)
 
 
+class Block:
+
+    def __init__(self, txns, timestamp=None, signature=None):
+        if timestamp is None:
+            timestamp = time.time()
+        self.timestamp = timestamp
+        self.signature = signature
+        self.txns = txns
+
+    def message(self):
+        data = [self.timestamp, self.txns]
+        return serialize(data)
+
+    def sign(self, private_key):
+        self.signature = private_key.sign(self.message())
+
+
 class Bank:
 
-    def __init__(self):
-        self.utxo = {}
+    def __init__(self, id, private_key):
+        self.id = id
+        self.private_key = private_key
+        self.blocks = []
+        self.utxo_set = {}
+        self.mempool = []
 
-    def update_utxo(self, tx):
+    def next_id(self):
+        return len(self.blocks) % NUM_BANKS
+
+    def update_utxo_set(self, tx):
         for tx_out in tx.tx_outs:
-            self.utxo[tx_out.outpoint] = tx_out
+            self.utxo_set[tx_out.outpoint] = tx_out
         for tx_in in tx.tx_ins:
-            del self.utxo[tx_in.outpoint]
+            del self.utxo_set[tx_in.outpoint]
 
     def issue(self, amount, public_key):
         id_ = str(uuid.uuid4())
@@ -93,7 +120,7 @@ class Bank:
                          public_key=public_key)]
         tx = Tx(id=id_, tx_ins=tx_ins, tx_outs=tx_outs)
 
-        self.update_utxo(tx)
+        self.update_utxo_set(tx)
 
         return tx
 
@@ -101,9 +128,9 @@ class Bank:
         in_sum = 0
         out_sum = 0
         for index, tx_in in enumerate(tx.tx_ins):
-            assert tx_in.outpoint in self.utxo
+            assert tx_in.outpoint in self.utxo_set
 
-            tx_out = self.utxo[tx_in.outpoint]
+            tx_out = self.utxo_set[tx_in.outpoint]
             # Verify signature using public key of TxOut we're spending
             public_key = tx_out.public_key
             tx.verify_input(index, public_key)
@@ -118,13 +145,28 @@ class Bank:
         assert in_sum == out_sum
 
     def handle_tx(self, tx):
-        # Save to self.utxo if it's valid
+        # Save to self.utxo_set if it's valid
         self.validate_tx(tx)
-        self.update_utxo(tx)
+        self.update_utxo_set(tx)
+
+    def handle_block(self, block):
+        if len(self.blocks) > 0:
+            public_key = bank_public_key(self.next_id)
+            public_key.verify(block.signature, block.message)
+
+        for tx in block.txns:
+            self.validate_tx(tx)
+
+        for tx in block.txns:
+            self.update_utxo_set(tx)
+
+        self.blocks.append(block)
+
+        self.schedule_next_block()
 
     def fetch_utxo(self, public_key):
-        return [utxo for utxo in self.utxo.values()
-                if utxo.public_key == public_key]
+        return [utxo for utxo in self.utxo_set.values()
+                if utxo_set.public_key == public_key]
 
     def fetch_balance(self, public_key):
         # Fetch utxo associated with this public key
@@ -132,15 +174,18 @@ class Bank:
         # Sum the amounts
         return sum([tx_out.amount for tx_out in unspents])
 
+    def schedule_next_block(self):
+        pass
 
 # server
+
 
 server_host = "0.0.0.0"
 client_host = "127.0.0.1"
 port = 10000
 server_address = (server_host, port)
 client_address = (client_host, port)
-bank = Bank()
+bank = None
 
 
 def prepare_message(command, data):
@@ -196,6 +241,9 @@ class TCPHandler(socketserver.BaseRequestHandler):
                     self.respond("tx-response", data="accepted")
                 except:
                     self.respond("tx-response", data="rejected")
+
+            if message["block"] == "block":
+                bank.handle_block(data)
 
 
 def serve():

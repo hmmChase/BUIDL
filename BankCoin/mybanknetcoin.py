@@ -11,7 +11,6 @@ Options:
   -h --help     Show this screen.
 """
 
-import os
 import sys
 sys.path.append('..')
 

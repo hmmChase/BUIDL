@@ -1,9 +1,11 @@
+import sys
+sys.path.append('..')
 import pytest
 import time
 import uuid
 import ecdsa
 import identities
-from blockcoin import *
+from myblockcoin import *
 
 
 def test_blocks():
